@@ -1,19 +1,23 @@
 {
   "name": "media-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Media streaming server with WebRTC signaling and UDP relay",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["streaming", "webrtc", "signaling", "udp", "media"],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^5.1.0",
-    "socket.io": "^4.8.1",
+    "express": "^4.18.2",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
   }
 }
