@@ -6,6 +6,7 @@ function StatusBar(props) {
             <span>WS: <strong>{ props.connected ? "CONNECTED" : "DISCONNECTED" } </strong></span>
             <span>Client ID: { props.clientId ? props.clientId : "" }</span>
             <span>Role: { props.role }</span>
+            { props.role === 'source' ? <span>Subscribers: { props.subscriberCount }</span> : <span>Sources: { props.availableSourcesCount }</span> }
         </div>
     );
 }

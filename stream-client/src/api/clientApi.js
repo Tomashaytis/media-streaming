@@ -1,19 +1,23 @@
 import config from "../config";
 
 class ClientApi {
-    constructor(serverHost, serverPort, udpPort, maxReconnectAttemps = 10, reconnectInterval = 5000) {
+    constructor(serverHost, serverPort, maxReconnectAttemps = 10, reconnectInterval = 5000) {
         this._serverHost = serverHost;
         this._serverPort = serverPort;
-        this._udpPort = udpPort;
         this._url = `ws://${this._serverHost}:${this._serverPort}`;
         this._socket = null;
         this._role = 'undefined';
         this._connected = false;
+        this._subscriber = null;
         this._reconnectAttempts = 0;
         this._maxReconnectAttempts = maxReconnectAttemps;
         this._reconnectInterval = reconnectInterval;
         this._reconnectTimer = null;
+        this._clientId = null;
+
+        // Callbacks
         this._roleCallback = () => { };
+        this._subscriberCallback = () => { };
         this._clientIdCallback = () => { };
         this._connectedCallback = () => { };
         this._availableSourcesCallback = (availableSources) => { };
@@ -21,13 +25,25 @@ class ClientApi {
         this._sourceUnavailableCallback = (sourceId) => { };
         this._newSubscriberCallback = () => { };
         this._noSubscribersCallback = () => { };
-        this._clientId = null;
+        this._videoFrameCallback = (frameData) => { };
 
         this.initSocket();
     }
 
     get role() {
         return this._role;
+    }
+
+    get clientId() {
+        return this._clientId;
+    }
+
+    get connected() {
+        return this._connected;
+    }
+
+    get subscriber() {
+        return this._subscriber;
     }
 
     set roleCallback(value) {
@@ -62,12 +78,12 @@ class ClientApi {
         this._noSubscribersCallback = value;
     }
 
-    get clientId() {
-        return this._clientId;
+    set subscriberCallback(value) {
+        this._subscriberCallback = value;
     }
 
-    get connected() {
-        return this._connected
+    set videoFrameCallback(value) {
+        this._videoFrameCallback = value;
     }
 
     initSocket() {
@@ -131,13 +147,24 @@ class ClientApi {
         });
     }
 
-    registerUdpPort() {
-        console.log('Requesting reqister udp endpoint...');
-        this.send({
-            type: 'register-udp-endpoint',
-            message: 'Request reqister UDP endpoint',
-            udpPort: this._udpPort
-        });
+    sendVideoFrame(canvas, quality = 0.7) {
+        if (!this._connected || this._role !== 'source') {
+            console.error('Not connected or not registered as source');
+            return;
+        }
+
+        canvas.toBlob((blob) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64data = reader.result.split(',')[1];
+                this.send({
+                    type: 'video-frame',
+                    data: base64data,
+                    ts: Date.now()
+                });
+            };
+            reader.readAsDataURL(blob);
+        }, 'image/jpeg', quality);
     }
 
     subscribe(sourceId) {
@@ -145,6 +172,13 @@ class ClientApi {
         this.send({
             type: 'subscribe',
             sourceId: sourceId
+        });
+    }
+
+    unsubscribe() {
+        console.log(`unsubscribe from any sources...`);
+        this.send({
+            type: 'unsubscribe',
         });
     }
 
@@ -180,12 +214,6 @@ class ClientApi {
                 console.log(data.message);
                 break;
 
-            case 'udp-endpoint-registered':
-                this._role = data.role;
-                this._roleCallback()
-                console.log(data.message);
-                break;
-
             case 'source-available':
                 this._sourceAvailableCallback(data.sourceId);
                 console.log(data.message);
@@ -204,6 +232,22 @@ class ClientApi {
             case 'no-subscribers':
                 this._noSubscribersCallback();
                 console.log(data.message);
+                break;
+
+            case 'subscribe':
+                this._subscriber = data.sourceId;
+                this._subscriberCallback();
+                console.log(data.message);
+                break;
+            
+            case 'unsubscribe':
+                this._subscriber = null;
+                this._subscriberCallback();
+                console.log(data.message);
+                break;
+
+            case 'video-frame':
+                this._videoFrameCallback(data);
                 break;
 
             default:
@@ -241,18 +285,19 @@ class ClientApi {
         this._clientId = null;
         this._role = 'undefined';
         this._connected = false;
+        this._subscriber = false;
         this._reconnectAttempts = 0;
 
         this._clientIdCallback();
         this._roleCallback();
         this._connectedCallback();
+        this._subscriberCallback();
     }
 }
 
 const clientApi = new ClientApi(
     config.SERVER_HOST,
     config.SERVER_PORT,
-    config.UDP_PORT,
     config.MAX_RECONNECT_ATTEMPS,
     config.RECONNECT_INTERVAL,
 );

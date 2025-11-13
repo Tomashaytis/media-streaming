@@ -1,33 +1,18 @@
 const WebSocket = require('ws');
-const dgram = require('dgram');
+const Jimp = require('jimp');
 
 class StreamServer {
     constructor(config) {
         this._signalingPort = config.SIGNALING_PORT;
-        this._udpPort = config.UDP_PORT;
 
         this._wss = new WebSocket.Server({ port: this._signalingPort });
-        this._udpServer = dgram.createSocket('udp4');
 
         this._clients = new Map();
         this._subscribers = new Map();
-        this._udpClients = new Map();
     }
 
     listen() {
-        console.log(`WebRTC Signaling Server running on port ${this._signalingPort}`);
-        console.log(`UDP Server running on port ${this._udpPort}`);
-
-        this._udpServer.on('message', (msg, rinfo) => {
-            this.handleUdpPacket(msg, rinfo);
-        });
-
-        this._udpServer.on('listening', () => {
-            const address = this._udpServer.address();
-            console.log(`UDP Server listening on ${address.address}:${address.port}`);
-        });
-
-        this._udpServer.bind(this._udpPort);
+        console.log(`Media Server running on port ${this._signalingPort}`);
 
         this._wss.on('connection', (ws) => {
             const clientId = this.generateId();
@@ -37,20 +22,18 @@ class StreamServer {
                 ws: ws,
                 role: 'unknown',
                 id: clientId,
-                udpAddress: null
             });
 
             this.send(ws, {
                 type: 'connected',
                 yourId: clientId,
-                serverUdpPort: this._udpPort,
                 message: 'Choose your role: register as source or viewer'
             });
 
-            ws.on('message', (data) => {
+            ws.on('message', async (data) => {
                 try {
                     const message = JSON.parse(data);
-                    this.handleClientMessage(clientId, message);
+                    await this.handleClientMessage(clientId, message);
                 } catch (error) {
                     this.sendError(ws, 'INVALID_MESSAGE_FORMAT', 'Invalid message format');
                 }
@@ -67,7 +50,7 @@ class StreamServer {
         });
     }
 
-    handleClientMessage(clientId, message) {
+    async handleClientMessage(clientId, message) {
         const client = this._clients.get(clientId);
         if (!client) return;
         if (!message.type) {
@@ -84,12 +67,16 @@ class StreamServer {
                 this.registerAsViewer(clientId);
                 break;
 
-            case 'register-udp-endpoint':
-                this.registerUdpEndpoint(clientId, message);
+            case 'video-frame':
+                await this.handleVideoFrame(clientId, message);
                 break;
 
             case 'subscribe':
                 this.subscribe(clientId, message);
+                break;
+
+            case 'unsubscribe':
+                this.unsubscribe(clientId, message);
                 break;
 
             default:
@@ -97,50 +84,50 @@ class StreamServer {
         }
     }
 
-    handleUdpPacket(msg, rinfo) {
-        const sourceId = this._udpClients.get(`${rinfo.address}:${rinfo.port}`);
+    async handleVideoFrame(clientId, message) {
+        const source = this._clients.get(clientId);
+        if (!source) return;
 
-        if (!sourceId) {
-            console.log(`Blocked UDP packet from unauthorized source: ${rinfo.address}:${rinfo.port}`);
+        if (source.role !== 'source') {
+            this.sendError(source.ws, 'REGISTRATION_REQUIRED', 'Register as source first');
             return;
         }
 
-        const subscribers = this._subscribers.get(sourceId);
-        if (!subscribers || subscribers.size === 0) {
-            console.log(`No subscribers for source ${sourceId}, ignoring packet`);
+        if (!message.frame) {
+            this.sendError(source.ws, 'INVALID_MESSAGE_FORMAT', 'Invalid message format');
             return;
         }
 
-        subscribers.forEach(viewerId => {
-            const viewer = this._clients.get(viewerId);
-            if (viewer && viewer.udpAddress) {
-                this._udpServer.send(msg, viewer.udpAddress.port, viewer.udpAddress.address);
-            }
-        });
+        const base64 = message.frame;
+        const sourceTs = message.ts || Date.now();
+
+        try {
+            const jpegBuffer = Buffer.from(base64, 'base64');
+            const processedBuffer = await this.processFrame(jpegBuffer);
+            const processedBase64 = processedBuffer.toString('base64');
+
+            this._subscribers.get(clientId).forEach(viewerId => {
+                const viewer = this._clients.get(viewerId);
+                this.send(viewer.ws, {
+                    type: 'video-frame',
+                    frame: processedBase64,
+                    sourceTs: sourceTs,
+                    serverTs: Date.now()
+                })
+            });
+        } catch (err) {
+            log('Error processing frame from', clientId, err.message);
+        }
     }
 
-    registerUdpEndpoint(clientId, message) {
-        const client = this._clients.get(clientId);
-        if (!client) return;
-
-        if (message.udpPort) {
-            const udpAddress = {
-                address: client.ws._socket.remoteAddress,
-                port: message.udpPort
-            };
-            client.udpAddress = udpAddress;
-
-            this._udpClients.set(`${udpAddress.address}:${udpAddress.port}`, clientId);
-
-            this.send(client.ws, {
-                type: 'udp-endpoint-registered',
-                role: 'source',
-                message: 'Success UDP endpoint registration'
-            });
-
-            console.log(`Client ${clientId} UDP endpoint: ${udpAddress.address}:${udpAddress.port}`);
-        } else {
-            this.sendError(client.ws, 'INVALID_MESSAGE_FORMAT', 'Invalid message format');
+    async processFrame(jpegBuffer) {
+        try {
+            const image = await Jimp.read(jpegBuffer);
+            image.grayscale();
+            return await image.getBufferAsync(Jimp.MIME_JPEG);
+        } catch (error) {
+            console.log('Error processing frame:', error);
+            return jpegBuffer;
         }
     }
 
@@ -155,7 +142,6 @@ class StreamServer {
                 }
             });
         }
-        client.udpAddress = null;
 
         this._subscribers.set(clientId, new Set());
         client.role = 'source';
@@ -193,7 +179,7 @@ class StreamServer {
             type: 'role-registered',
             role: 'viewer',
             availableSources: availableSources,
-            message: 'Success registration as video source'
+            message: 'Success registration as viewer'
         });
     }
 
@@ -217,8 +203,27 @@ class StreamServer {
         }
 
         if (this._subscribers.has(source.id)) {
+            this._subscribers.forEach((subscribers, sourceId) => {
+                if (subscribers.has(viewerId)) {
+                    subscribers.delete(viewerId);
+                    const tmpSource = this._clients.get(sourceId);
+                    if (subscribers.size === 0) {
+                        this.send(tmpSource.ws, {
+                            type: 'no-subscribers',
+                            message: 'No subscribers for your stream'
+                        });
+                    }
+                }
+            });
+
             this._subscribers.get(source.id).add(viewerId);
         }
+
+        this.send(viewer.ws, {
+            type: 'subscribe',
+            sourceId: source.id,
+            message: 'Success subscribe'
+        });
 
         this.send(source.ws, {
             type: 'new-subscriber',
@@ -226,10 +231,38 @@ class StreamServer {
         });
     }
 
+    unsubscribe(viewerId) {
+        const viewer = this._clients.get(viewerId);
+        if (!viewer) return;
+
+        if (viewer.role !== 'viewer') {
+            this.sendError(viewer.ws, 'REGISTRATION_REQUIRED', 'Register as viewer first');
+            return;
+        }
+
+        this._subscribers.forEach((subscribers, sourceId) => {
+            if (subscribers.has(viewerId)) {
+                subscribers.delete(viewerId);
+                const source = this._clients.get(sourceId);
+                if (subscribers.size === 0) {
+                    this.send(source.ws, {
+                        type: 'no-subscribers',
+                        message: 'No subscribers for your stream'
+                    });
+                }
+            }
+        });
+
+        this.send(viewer.ws, {
+            type: 'unsubscribe',
+            message: 'Success unsubscribe'
+        });
+    }
+
     broadcastToViewers(message) {
         this._clients.forEach((client) => {
             if (client.role === 'viewer' && client.ws.readyState === WebSocket.OPEN) {
-                client.ws.send(JSON.stringify(message));
+                this.send(client.ws, message);
             }
         });
     }
@@ -247,18 +280,25 @@ class StreamServer {
             console.log(`Client ${clientId} (${client.role}) disconnected`);
 
             if (client.role === 'source') {
-                this._subscribers.delete(clientId);
                 this.broadcastToViewers({
                     type: 'source-unavailable',
                     sourceId: clientId,
                     message: 'Source unavailable'
                 });
+                this._subscribers.get(clientId).forEach(viewerId => {
+                    const viewer = this._clients.get(viewerId);
+                    this.send(viewer.ws, {
+                        type: 'unsubscribe',
+                        message: 'Source unavailable'
+                    });
+                });
+                this._subscribers.delete(clientId);
             } else if (client.role === 'viewer') {
                 this._subscribers.forEach((subscribers, sourceId) => {
                     if (subscribers.has(clientId)) {
                         subscribers.delete(clientId);
                         const source = this._clients.get(sourceId);
-                        if (source && subscribers.size === 0 && source.ws.readyState === WebSocket.OPEN) {
+                        if (subscribers.size === 0) {
                             this.send(source.ws, {
                                 type: 'no-subscribers',
                                 message: 'No subscribers for your stream'
@@ -266,9 +306,6 @@ class StreamServer {
                         }
                     }
                 });
-            }
-            if (client.udpAddress) {
-                this._udpClients.delete(`${client.udpAddress.address}:${client.udpAddress.port}`)
             }
 
             this._clients.delete(clientId);

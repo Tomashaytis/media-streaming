@@ -2,6 +2,7 @@ import StatusBar from './components/StatusBar/StatusBar.jsx';
 import ModeSwitch from './components/ModeSwitch/ModeSwitch.jsx';
 import ViewerMode from './components/ViewerMode/ViewerMode.jsx';
 import SourceMode from './components/SourceMode/SourceMode.jsx';
+import AvailableSources from './components/AvailableSources/AvailableSources.jsx';
 import clientApi from './api/clientApi';
 import './App.css';
 import { ClientApiContext } from './contexts/ClientApiContext.jsx';
@@ -38,6 +39,15 @@ function App() {
         };
     }, []);
 
+    // On status change
+    const [subscriber, setSubscriber] = useState(clientApi.subscriber);
+    useEffect(() => {
+        const handler = () => setSubscriber(clientApi.subscriber);
+        clientApi.subscriberCallback = handler;
+        return () => {
+            clientApi.subscriberCallback = () => { };
+        };
+    }, []);
 
     const [availableSources, setAvailableSources] = useState(new Set());
     useEffect(() => {
@@ -84,11 +94,52 @@ function App() {
         };
     }, []);
 
+    // On frame change
+    const [currentFrame, setCurrentFrame] = useState(null);
+    const [frameInfo, setFrameInfo] = useState({ sourceTs: 0, serverTs: 0 });
+
+    useEffect(() => {
+        const videoFrameHandler = (data) => {
+            setCurrentFrame(data.frame);
+            setFrameInfo({
+                sourceTs: data.sourceTs,
+                serverTs: data.serverTs
+            });
+        };
+
+        clientApi.videoFrameCallback = videoFrameHandler;
+
+        return () => {
+            clientApi.videoFrameCallback = () => { };
+        };
+    }, []);
+
     return (
         <ClientApiContext.Provider value={clientApi}>
             <main className="App">
                 <h1>Media streaming</h1>
-                <StatusBar connected={connected} clientId={clientId} role={role} />
+                <StatusBar
+                    connected={connected}
+                    clientId={clientId}
+                    role={role}
+                    subscriberCount={subscriberCount}
+                    availableSourcesCount={Array.from(availableSources).length}
+                />
+                {
+                    role !== 'source' ?
+                    <AvailableSources
+                        availableSources={Array.from(availableSources)}
+                        onSourceSelect={(sourceId) => {
+                            if (subscriber !== null) {
+                                clientApi.unsubscribe()
+                            } else {
+                                clientApi.subscribe(sourceId)
+                            }
+                        }}
+                        subscriber={subscriber}
+                    /> :
+                    <></>
+                }
                 <ModeSwitch
                     role={role}
                     onRoleChange={(newRole) => {
@@ -96,7 +147,11 @@ function App() {
                         if (newRole === 'viewer') clientApi.registerAsViewer();
                     }}
                 />
-                {role === 'source' ? <SourceMode /> : <ViewerMode />}
+                {
+                    role === 'source' ?
+                        <SourceMode /> :
+                        <ViewerMode frame={currentFrame} frameInfo={frameInfo} />
+                }
             </main>
         </ClientApiContext.Provider>
     );
