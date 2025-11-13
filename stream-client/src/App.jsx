@@ -1,4 +1,110 @@
-import React, { useEffect, useRef, useState } from 'react';
+import StatusBar from './components/StatusBar/StatusBar.jsx';
+import ModeSwitch from './components/ModeSwitch/ModeSwitch.jsx';
+import ViewerMode from './components/ViewerMode/ViewerMode.jsx';
+import SourceMode from './components/SourceMode/SourceMode.jsx';
+import clientApi from './api/clientApi';
+import './App.css';
+import { ClientApiContext } from './contexts/ClientApiContext.jsx';
+import { useState, useEffect, useCallback } from 'react';
+
+function App() {
+    // On client ID change
+    const [clientId, setClientId] = useState(clientApi.clientId);
+    useEffect(() => {
+        const handler = () => setClientId(clientApi.clientId);
+        clientApi.clientIdCallback = handler;
+        return () => {
+            clientApi.clientIdCallback = () => { };
+        };
+    }, []);
+
+    // On role change
+    const [role, setRole] = useState(clientApi.role);
+    useEffect(() => {
+        const handler = () => setRole(clientApi.role);
+        clientApi.roleCallback = handler;
+        return () => {
+            clientApi.roleCallback = () => { };
+        };
+    }, []);
+
+    // On status change
+    const [connected, setConnected] = useState(clientApi.connected);
+    useEffect(() => {
+        const handler = () => setConnected(clientApi.connected);
+        clientApi.connectedCallback = handler;
+        return () => {
+            clientApi.connectedCallback = () => { };
+        };
+    }, []);
+
+
+    const [availableSources, setAvailableSources] = useState(new Set());
+    useEffect(() => {
+        const availableSourcesHandler = (sources) => {
+            setAvailableSources(new Set(sources));
+        };
+
+        const sourceAvailableHandler = (sourceId) => {
+            setAvailableSources(prev => new Set([...prev, sourceId]));
+        };
+
+        const sourceUnavailableHandler = (sourceId) => {
+            setAvailableSources(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(sourceId);
+                return newSet;
+            });
+        };
+
+        clientApi.availableSourcesCallback = availableSourcesHandler;
+        clientApi.sourceAvailableCallback = sourceAvailableHandler;
+        clientApi.sourceUnavailableCallback = sourceUnavailableHandler;
+
+        return () => {
+            clientApi.availableSourcesCallback = () => { };
+            clientApi.sourceAvailableCallback = () => { };
+            clientApi.sourceUnavailableCallback = () => { };
+        };
+    }, []);
+
+
+    // On subscribers change
+    const [subscriberCount, setSubscriberCount] = useState(0);
+    useEffect(() => {
+        const newSubscriberHandler = () => setSubscriberCount(prev => prev + 1);
+        const noSubscribersHandler = () => setSubscriberCount(0);
+
+        clientApi.newSubscriberCallback = newSubscriberHandler;
+        clientApi.noSubscribersCallback = noSubscribersHandler;
+
+        return () => {
+            clientApi.newSubscriberCallback = () => { };
+            clientApi.noSubscribersCallback = () => { };
+        };
+    }, []);
+
+    return (
+        <ClientApiContext.Provider value={clientApi}>
+            <main className="App">
+                <h1>Media streaming</h1>
+                <StatusBar connected={connected} clientId={clientId} role={role} />
+                <ModeSwitch
+                    role={role}
+                    onRoleChange={(newRole) => {
+                        if (newRole === 'source') clientApi.registerAsSource();
+                        if (newRole === 'viewer') clientApi.registerAsViewer();
+                    }}
+                />
+                {role === 'source' ? <SourceMode /> : <ViewerMode />}
+            </main>
+        </ClientApiContext.Provider>
+    );
+}
+
+export default App;
+
+/*import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
 
 const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8888';
@@ -244,4 +350,4 @@ function App() {
   );
 }
 
-export default App;
+export default App;*/

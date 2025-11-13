@@ -1,0 +1,16 @@
+.App {
+    text-align: center;
+    background-color: #111827;
+    min-height: 100vh;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+    color: #f9fafb;
+    box-sizing: border-box;
+}
+
+h1 {
+    margin: 0 0 8px;
+}

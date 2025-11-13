@@ -1,3 +1,26 @@
+const express = require('express');
+const path = require('path');
+const cors = require('cors');
+
+const StreamServer = require('./src/services/stream-server');
+const config = require('./config');
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.resolve(__dirname, '../client/build')));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.resolve(__dirname, '../client/build', 'index.html'));
+});
+
+const streamServer = new StreamServer(config);
+
+streamServer.listen();
+
+
+/*
 const WebSocket = require('ws');
 const Jimp = require('jimp');
 
@@ -5,7 +28,7 @@ const SIGNALING_PORT = process.env.SIGNALING_PORT || 8888;
 
 const wss = new WebSocket.Server({ port: SIGNALING_PORT });
 
-/** { id: string, socket: WebSocket, role: 'source' | 'viewer' | 'unknown' } */
+/** { id: string, socket: WebSocket, role: 'source' | 'viewer' | 'unknown' } * /
 const clients = new Map();
 
 let nextId = 1;
@@ -95,3 +118,4 @@ wss.on('connection', (ws) => {
 });
 
 log('Media WebSocket server listening on port', SIGNALING_PORT);
+*/

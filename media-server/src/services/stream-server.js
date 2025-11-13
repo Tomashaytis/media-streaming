@@ -40,11 +40,12 @@ class StreamServer {
                 udpAddress: null
             });
 
-            ws.send(JSON.stringify({
+            this.send(ws, {
                 type: 'connected',
                 yourId: clientId,
+                serverUdpPort: this._udpPort,
                 message: 'Choose your role: register as source or viewer'
-            }));
+            });
 
             ws.on('message', (data) => {
                 try {
@@ -122,15 +123,22 @@ class StreamServer {
         const client = this._clients.get(clientId);
         if (!client) return;
 
-        if (message.address && message.port) {
-            client.udpAddress = {
-                address: message.address,
-                port: message.port
+        if (message.udpPort) {
+            const udpAddress = {
+                address: client.ws._socket.remoteAddress,
+                port: message.udpPort
             };
+            client.udpAddress = udpAddress;
 
-            this._udpClients.set(`${message.address}:${message.port}`, clientId);
+            this._udpClients.set(`${udpAddress.address}:${udpAddress.port}`, clientId);
 
-            console.log(`Client ${clientId} UDP endpoint: ${message.address}:${message.port}`);
+            this.send(client.ws, {
+                type: 'udp-endpoint-registered',
+                role: 'source',
+                message: 'Success UDP endpoint registration'
+            });
+
+            console.log(`Client ${clientId} UDP endpoint: ${udpAddress.address}:${udpAddress.port}`);
         } else {
             this.sendError(client.ws, 'INVALID_MESSAGE_FORMAT', 'Invalid message format');
         }
@@ -154,17 +162,16 @@ class StreamServer {
 
         console.log(`Client ${clientId} registered as VIDEO SOURCE`);
 
-        if (client.ws.readyState === WebSocket.OPEN) {
-            client.ws.send(JSON.stringify({
-                type: 'role-registered',
-                role: 'source',
-                yourId: clientId
-            }));
-        }
+        this.send(client.ws, {
+            type: 'role-registered',
+            role: 'source',
+            message: 'Success registration as video source'
+        });
 
         this.broadcastToViewers({
             type: 'source-available',
-            sourceId: clientId
+            sourceId: clientId,
+            message: 'New source available'
         });
     }
 
@@ -181,14 +188,13 @@ class StreamServer {
         console.log(`Client ${clientId} registered as VIEWER`);
 
         const availableSources = Array.from(this._subscribers.keys());
-        if (client.ws.readyState === WebSocket.OPEN) {
-            client.ws.send(JSON.stringify({
-                type: 'role-registered',
-                role: 'viewer',
-                yourId: clientId,
-                availableSources: availableSources
-            }));
-        }
+
+        this.send(client.ws, {
+            type: 'role-registered',
+            role: 'viewer',
+            availableSources: availableSources,
+            message: 'Success registration as video source'
+        });
     }
 
     subscribe(viewerId, message) {
@@ -214,11 +220,10 @@ class StreamServer {
             this._subscribers.get(source.id).add(viewerId);
         }
 
-        if (source.ws.readyState === WebSocket.OPEN) {
-            source.ws.send(JSON.stringify({
-                type: 'new-subscriber'
-            }));
-        }
+        this.send(source.ws, {
+            type: 'new-subscriber',
+            message: 'New subscriber appear for your stream'
+        });
     }
 
     broadcastToViewers(message) {
@@ -227,6 +232,12 @@ class StreamServer {
                 client.ws.send(JSON.stringify(message));
             }
         });
+    }
+
+    send(ws, message) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(message));
+        }
     }
 
     handleDisconnect(clientId) {
@@ -239,7 +250,8 @@ class StreamServer {
                 this._subscribers.delete(clientId);
                 this.broadcastToViewers({
                     type: 'source-unavailable',
-                    sourceId: clientId
+                    sourceId: clientId,
+                    message: 'Source unavailable'
                 });
             } else if (client.role === 'viewer') {
                 this._subscribers.forEach((subscribers, sourceId) => {
@@ -247,9 +259,10 @@ class StreamServer {
                         subscribers.delete(clientId);
                         const source = this._clients.get(sourceId);
                         if (source && subscribers.size === 0 && source.ws.readyState === WebSocket.OPEN) {
-                            source.ws.send(JSON.stringify({
-                                type: 'no-subscribers'
-                            }));
+                            this.send(source.ws, {
+                                type: 'no-subscribers',
+                                message: 'No subscribers for your stream'
+                            });
                         }
                     }
                 });
