@@ -20,14 +20,13 @@ function App() {
   const [streaming, setStreaming] = useState(false);
   const frameTimerRef = useRef(null);
 
-  // mở WebSocket
   useEffect(() => {
     const socket = new WebSocket(WS_URL);
     setWsStatus('connecting');
 
     socket.onopen = () => {
       setWsStatus('connected');
-      // đăng ký ngay theo mode hiện tại
+
       socket.send(JSON.stringify({ type: 'register', role: mode }));
     };
 
@@ -65,14 +64,14 @@ function App() {
     };
   }, [mode]);
 
-  // nếu đang mở WS mà đổi mode → gửi lại register
+  //  WS open and mode was changed so register will be resended
   useEffect(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'register', role: mode }));
     }
   }, [mode, ws]);
 
-  // --- SOURCE: camera + gửi frame ---
+  //SOURCE: camera + frame
   async function startCamera() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({

@@ -52,7 +52,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // frame từ SOURCE
+    // frame from SOURCE
     if (msg.type === 'frame') {
       const client = clients.get(id);
       if (!client || client.role !== 'source') return;
