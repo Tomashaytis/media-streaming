@@ -35,7 +35,7 @@ function ViewerMode(props) {
             <p>Получаем обработанный поток с сервера и отображаем его как видео.</p>
             <div className="video-row">
                 <div className="video-box">
-                    {props.frame ? (
+                    {props.frame && props.subscriber && props.role === 'viewer' ? (
                         <>
                             <img 
                                 ref={videoRef}

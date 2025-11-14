@@ -1,17 +1,35 @@
-import { useRef, useState, useEffect } from 'react';
+import { useContext, useRef, useState, useEffect } from 'react';
+import { ClientApiContext } from '../../contexts/ClientApiContext'
 import './SourceMode.css';
 
-function SourceMode() {
+function SourceMode(props) {
+    const clientApi = useContext(ClientApiContext);
     const videoRef = useRef(null);
+    const streamingIntervalRef = useRef(null);
     const [stream, setStream] = useState(null);
     const [isCameraActive, setIsCameraActive] = useState(false);
+
+    const captureFrame = () => {
+        if (!videoRef.current || videoRef.current.videoWidth === 0) {
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = videoRef.current.videoWidth;
+        canvas.height = videoRef.current.videoHeight;
+        ctx.drawImage(videoRef.current, 0, 0);
+
+        clientApi.sendVideoFrame(canvas, 0.5);
+    };
 
     const startCamera = async () => {
         try {
             const mediaStream = await navigator.mediaDevices.getUserMedia({
-                video: { 
+                video: {
                     width: { ideal: 1280 },
-                    height: { ideal: 720 } 
+                    height: { ideal: 720 }
                 },
                 audio: false
             });
@@ -19,15 +37,19 @@ function SourceMode() {
             setStream(mediaStream);
             setIsCameraActive(true);
 
-            // Ждём, пока video элемент будет готов
             if (videoRef.current) {
                 videoRef.current.srcObject = mediaStream;
 
-                // Добавляем обработчик, чтобы play() сработал, когда можно
                 videoRef.current.onloadedmetadata = () => {
                     videoRef.current.play().catch(err => {
                         console.warn('Автовоспроизведение не сработало:', err);
                     });
+
+                    setTimeout(() => {
+                        if (props.role === 'source' && props.subscriberCount > 0) {
+                            streamingIntervalRef.current = setInterval(captureFrame, 10);
+                        }
+                    }, 500);
                 };
             }
         } catch (error) {
@@ -37,6 +59,11 @@ function SourceMode() {
     };
 
     const stopCamera = () => {
+        if (streamingIntervalRef.current) {
+            clearInterval(streamingIntervalRef.current);
+            streamingIntervalRef.current = null;
+        }
+        
         if (stream) {
             stream.getTracks().forEach(track => track.stop());
             setStream(null);
@@ -44,16 +71,28 @@ function SourceMode() {
         }
     };
 
-    // Очистка при размонтировании
+    useEffect(() => {
+        if (props.role === 'source' && props.subscriberCount > 0 && isCameraActive && !streamingIntervalRef.current) {
+            streamingIntervalRef.current = setInterval(captureFrame, 100);
+            console.log('Streaming started');
+        } else if ((props.role !== 'source' || props.subscriberCount === 0) && streamingIntervalRef.current) {
+            clearInterval(streamingIntervalRef.current);
+            streamingIntervalRef.current = null;
+            console.log('Streaming stopped');
+        }
+    }, [props.role, props.subscriberCount, isCameraActive]);
+
     useEffect(() => {
         return () => {
+            if (streamingIntervalRef.current) {
+                clearInterval(streamingIntervalRef.current);
+            }
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
             }
         };
     }, [stream]);
 
-    // Привязываем поток при изменении stream (если video уже смонтирован)
     useEffect(() => {
         if (stream && videoRef.current) {
             videoRef.current.srcObject = stream;
@@ -79,13 +118,13 @@ function SourceMode() {
                     )}
                 </div>
                 <div className="controls">
-                    <button 
+                    <button
                         onClick={startCamera}
                         disabled={isCameraActive}
                     >
                         Start camera & streaming
                     </button>
-                    <button 
+                    <button
                         onClick={stopCamera}
                         disabled={!isCameraActive}
                     >

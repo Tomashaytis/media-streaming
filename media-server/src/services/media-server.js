@@ -217,18 +217,18 @@ class StreamServer {
             });
 
             this._subscribers.get(source.id).add(viewerId);
+
+            this.send(viewer.ws, {
+                type: 'subscribe',
+                sourceId: source.id,
+                message: 'Success subscribe'
+            });
+
+            this.send(source.ws, {
+                type: 'new-subscriber',
+                message: 'New subscriber appear for your stream'
+            });
         }
-
-        this.send(viewer.ws, {
-            type: 'subscribe',
-            sourceId: source.id,
-            message: 'Success subscribe'
-        });
-
-        this.send(source.ws, {
-            type: 'new-subscriber',
-            message: 'New subscriber appear for your stream'
-        });
     }
 
     unsubscribe(viewerId) {

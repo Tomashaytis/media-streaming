@@ -6,7 +6,7 @@ import AvailableSources from './components/AvailableSources/AvailableSources.jsx
 import clientApi from './api/clientApi';
 import './App.css';
 import { ClientApiContext } from './contexts/ClientApiContext.jsx';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 
 function App() {
     // On client ID change
@@ -39,7 +39,7 @@ function App() {
         };
     }, []);
 
-    // On status change
+    // On subscriber change
     const [subscriber, setSubscriber] = useState(clientApi.subscriber);
     useEffect(() => {
         const handler = () => setSubscriber(clientApi.subscriber);
@@ -130,10 +130,10 @@ function App() {
                     <AvailableSources
                         availableSources={Array.from(availableSources)}
                         onSourceSelect={(sourceId) => {
-                            if (subscriber !== null) {
-                                clientApi.unsubscribe()
+                            if (sourceId === subscriber) {
+                                clientApi.unsubscribe();
                             } else {
-                                clientApi.subscribe(sourceId)
+                                clientApi.subscribe(sourceId);
                             }
                         }}
                         subscriber={subscriber}
@@ -149,8 +149,8 @@ function App() {
                 />
                 {
                     role === 'source' ?
-                        <SourceMode /> :
-                        <ViewerMode frame={currentFrame} frameInfo={frameInfo} />
+                        <SourceMode role={role} subscriberCount={subscriberCount} /> :
+                        <ViewerMode role={role} subscriber={subscriber} frame={currentFrame} frameInfo={frameInfo} />
                 }
             </main>
         </ClientApiContext.Provider>

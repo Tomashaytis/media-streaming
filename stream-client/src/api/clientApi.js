@@ -148,18 +148,13 @@ class ClientApi {
     }
 
     sendVideoFrame(canvas, quality = 0.7) {
-        if (!this._connected || this._role !== 'source') {
-            console.error('Not connected or not registered as source');
-            return;
-        }
-
         canvas.toBlob((blob) => {
             const reader = new FileReader();
             reader.onload = () => {
                 const base64data = reader.result.split(',')[1];
                 this.send({
                     type: 'video-frame',
-                    data: base64data,
+                    frame: base64data,
                     ts: Date.now()
                 });
             };
